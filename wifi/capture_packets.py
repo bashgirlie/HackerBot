@@ -11,6 +11,10 @@ Need to add a logging functionality and an upper time limit just incase
 
 import serial
 from scapy.all import RadioTap, binascii, wrpcap
+import logging
+
+
+logging.basicConfig(file="packet_capture.log", filemode="w", level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s') 
 
 # Open connection to the ESP32 likely /dev/ttyACM0 or dev/ttyUSB0
 serial_connection = serial.Serial(port='dev/ttyUSB0', baudrate=115200, timeout=1)
