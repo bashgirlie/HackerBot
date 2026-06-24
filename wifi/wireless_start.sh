@@ -12,7 +12,8 @@ LOG_FILE="packet_capture.log"
 #     FLAGS="-m scan -b 00:11:22:33:44:55"
 #   To launch in INTERACTIVE mode (requires running inside an open terminal):
 #     FLAGS=""
-FLAGS="-m all -c 1"
+FLAGS="-m all -c 6"
+#FLAGS="-m scan -b a4:bb:6d:04:11:ff -o target_network.pcap"
 # ---------------------
 
 echo "[+] Starting Wireless Packet Capture Automation Pipeline..." >> "$SCRIPT_DIR/$LOG_FILE"
@@ -39,4 +40,3 @@ echo "[🚀] Success! Engine running in background with PID: $LAUNCH_PID"
 
 # 5. Save the PID to a file so a stop script can find it easily later
 echo $LAUNCH_PID > "$SCRIPT_DIR/capture.pid"
-
