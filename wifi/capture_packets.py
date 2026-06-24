@@ -49,8 +49,14 @@ def parse_ssid(packet_bytes):
     return "Hidden Network"
 
 def run_live_scan(serial_connection, target_bssid=None):
-    """Hops channels 1-11 for 5 seconds to build a dynamic target menu."""
-    print("\n[+] Scanning 2.4GHz spectrum for 5 seconds...")
+    """Hops channels 1-11 for 5 seconds to build a dynamic target map or locate a target."""
+    if target_bssid:
+        target_bssid = target_bssid.lower()
+        print(f"[+] Automated Mode: Scanning channels for target BSSID [{target_bssid}]...")
+        logging.info(f"Automated Mode: Scanning channels for target BSSID [{target_bssid}]...")
+    else:
+        print("\n[+] Interactive Mode: Scanning 2.4GHz spectrum for 5 seconds...")
+        
     networks = {} # maps bssid -> (ssid, channel)
 
     start_scan = time.time()
@@ -81,7 +87,6 @@ def run_live_scan(serial_connection, target_bssid=None):
                 break
 
             len_offset = start_idx + len(MAGIC_HEADER)
-            # Fixed tuple extraction using [0]
             pkt_len = struct.unpack('<H', buffer[len_offset:len_offset+2])[0]
             payload_end = len_offset + 2 + pkt_len
 
@@ -90,7 +95,6 @@ def run_live_scan(serial_connection, target_bssid=None):
                 break
 
             packet_bytes = buffer[len_offset+2:payload_end]
-            # Fixed buffer progression to prevent infinite loops
             buffer = buffer[payload_end:]
 
             if len(packet_bytes) >= 36 and packet_bytes[0] == 0x80:
@@ -99,15 +103,23 @@ def run_live_scan(serial_connection, target_bssid=None):
                     ssid = parse_ssid(packet_bytes=packet_bytes)
                     networks[bssid] = (ssid, current_channel)
 
-                    if target_bssid and bssid == target_bssid.lower():
-                        return bssid, current_channel
+    # --- PIPELINE ROUTING ---
+    
+    # Path A: Headless Automation Mode (-m scan -b <MAC>)
+    if target_bssid:
+        if target_bssid in networks:
+            ssid, chan = networks[target_bssid]
+            print(f"[🚀] Auto-Discovery Success: Found '{ssid}' on Channel {chan}")
+            logging.info(f"Auto-Discovery Success: Found '{ssid}' on Channel {chan}")
+            return target_bssid, chan
+        else:
+            print(f"[-] Auto-Discovery Failure: Target {target_bssid} not detected in range.")
+            logging.warning(f"Auto-Discovery Failure: Target {target_bssid} not detected in range.")
+            return None, None
 
+    # Path B: Interactive Fallback Mode (No flags passed)
     if not networks:
         print("[-] No networks detected. Try repositioning your hardware.")
-        return None, None
-    
-    if target_bssid:
-        print(f"[-] Target {target_bssid} was not seen during background scan.")
         return None, None
         
     print("\n=== AVAILABLE Wi-Fi Networks ===")
@@ -127,7 +139,7 @@ def run_live_scan(serial_connection, target_bssid=None):
         except ValueError:
             pass
         print("[!] Invalid selection.")
-        logging.info("[!] Invalid selection.")
+
 
 def capture_packets(serial_connection, base_pcap_name, target_bssid=None, channel=1):
     print("Listening for packets from ESP32... Press CTRL+C to stop.")  
@@ -270,15 +282,24 @@ if __name__ == "__main__":
 
     if args.mode == "all":
         capture_packets(ser, base_pcap_name=args.output, target_bssid=None, channel=args.channel)
+        
     elif args.mode == "scan" and args.bssid:
+        # Run automated background discovery pass
         target, channel = run_live_scan(ser, target_bssid=args.bssid)
         if target:
+            # Target located -> Lock channel and capture target packets
             capture_packets(ser, base_pcap_name=args.output, target_bssid=target, channel=channel)
+        else:
+            # Fallback Safety: Target not found, drop back to safe Catch-All operations
+            print(f"[!] Falling back to Catch-All Mode on Channel {args.channel}...")
+            logging.info(f"Falling back to Catch-All Mode on Channel {args.channel}")
+            capture_packets(ser, base_pcap_name=args.output, target_bssid=None, channel=args.channel)
+            
     else:
         # Fallback to Menu UI if flags are omitted
         print("=== INTERACTIVE SELECTION ===")
-        print(" [1] Scan and lock onto a local network")
-        print(" [2] Blind Catch-All mode channel capture")
+        print(" Scan and lock onto a local network")
+        print(" Blind Catch-All mode channel capture")
         user_choice = input("Select Option (1 or 2): ").strip()
         
         if user_choice == "1":
