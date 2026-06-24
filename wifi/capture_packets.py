@@ -14,6 +14,7 @@ import sys
 import struct
 import argparse
 import time
+import random
 
 script_pid = os.getpid()
 
@@ -267,7 +268,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ESP32-Pi Native Capture Script")
     parser.add_argument("-m", "--mode", choices=["scan", "all"], help="Automation Execution Mode", default=None)
     parser.add_argument("-b", "--bssid", help="Target BSSID", type=str, default=None)
-    parser.add_argument("-c", "--channel", help="Static Target Channel", type=int, default=1)
+    parser.add_argument("-c", "--channel", help="Static Target Channel", type=int, default=None)
     parser.add_argument("-o", "--output", help="Output filename base string", type=str, default="wifi_capture.pcap")
     parser.add_argument("-p", "--port", help="Serial connection device path", type=str, default="/dev/ttyUSB0")
     args = parser.parse_args()
@@ -279,6 +280,15 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[-] Failure opening serial hardware port {args.port}: {e}")
         sys.exit(1)
+    
+    # Determine operational or fallback channel values
+    if args.channel is not None and 1 <= args.channel <= 11:
+        chosen_channel = args.channel
+    else:
+        # Fallback: Pick a completely random channel (1-11) if omitted or out of bounds
+        chosen_channel = random.randint(1, 11)
+        print(f"[🎲] No specific channel specified. Selected random fallback Channel: {chosen_channel}")
+        logging.info(f"No specific channel specified. Selected random fallback Channel: {chosen_channel}")
 
     if args.mode == "all":
         capture_packets(ser, base_pcap_name=args.output, target_bssid=None, channel=args.channel)
