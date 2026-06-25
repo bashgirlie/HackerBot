@@ -22,7 +22,6 @@ script_pid = os.getpid()
 PCAP_GLOBAL_HEADER = struct.pack('<IHHIIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, 105)
 MAGIC_HEADER = b"START_PKT:"
 
-# Fixed 'file' parameter to 'filename' to prevent crashes
 logging.basicConfig(filename="packet_capture.log", filemode="a", level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') 
 
 print(f"\ncapture_packets.py started with Process ID: {script_pid}.\n"
@@ -105,8 +104,6 @@ def run_live_scan(serial_connection, target_bssid=None):
                     networks[bssid] = (ssid, current_channel)
 
     # --- PIPELINE ROUTING ---
-    
-    # Path A: Headless Automation Mode (-m scan -b <MAC>)
     if target_bssid:
         if target_bssid in networks:
             ssid, chan = networks[target_bssid]
@@ -118,7 +115,6 @@ def run_live_scan(serial_connection, target_bssid=None):
             logging.warning(f"Auto-Discovery Failure: Target {target_bssid} not detected in range.")
             return None, None
 
-    # Path B: Interactive Fallback Mode (No flags passed)
     if not networks:
         print("[-] No networks detected. Try repositioning your hardware.")
         return None, None
@@ -130,7 +126,7 @@ def run_live_scan(serial_connection, target_bssid=None):
     
     while True:
         try:
-            choice = input("Select an index (or 'q' to quit): ")
+            choice = input("Select an index (or 'q' to quit): ").strip()
             if choice.lower() == 'q':
                 return None, None
             choice_idx = int(choice)
@@ -146,10 +142,8 @@ def capture_packets(serial_connection, base_pcap_name, target_bssid=None, channe
     print("Listening for packets from ESP32... Press CTRL+C to stop.")  
     logging.info("Started listening for packets from ESP32 module for capture...")
 
-    # Max file size configuration (50 MB in bytes)
     MAX_FILE_SIZE = 50 * 1024 * 1024 
 
-    # String tracking logic for safe file definitions
     if target_bssid:
         target_bssid = target_bssid.lower()
         clean_bssid_str = target_bssid.replace(":", "")
@@ -164,7 +158,6 @@ def capture_packets(serial_connection, base_pcap_name, target_bssid=None, channe
     print(f"Writing directly to {filename}...")
     logging.info(f"Writing directly to {filename}...")
 
-    # Send the final chosen radio channel rule to the ESP32
     serial_connection.write(f"SET_CH:{channel}\n".encode())
     serial_connection.reset_input_buffer()
     time.sleep(0.5)
@@ -199,7 +192,6 @@ def capture_packets(serial_connection, base_pcap_name, target_bssid=None, channe
                     break
 
                 len_offset = start_idx + len(MAGIC_HEADER)
-                # FIX 1: Extracted single element using [0] to avoid tuple crashes
                 pkt_len = struct.unpack('<H', buffer[len_offset:len_offset+2])[0]
 
                 payload_start = len_offset + 2
@@ -217,9 +209,9 @@ def capture_packets(serial_connection, base_pcap_name, target_bssid=None, channe
                     should_save = True
                 else:
                     if len(packet_bytes) >= 24:
-                        addr1 = parse_mac(packet=packet_bytes, offset=4) # destination
-                        addr2 = parse_mac(packet=packet_bytes, offset=10) # source
-                        addr3 = parse_mac(packet=packet_bytes, offset=16) # BSSID
+                        addr1 = parse_mac(packet=packet_bytes, offset=4)
+                        addr2 = parse_mac(packet=packet_bytes, offset=10)
+                        addr3 = parse_mac(packet=packet_bytes, offset=16)
 
                         if target_bssid in [addr1, addr2, addr3]:
                             should_save = True
@@ -233,7 +225,6 @@ def capture_packets(serial_connection, base_pcap_name, target_bssid=None, channe
                     bytes_to_write = packet_header_bytes + packet_bytes
                     packet_total_size = len(bytes_to_write)
 
-                    # --- Live Log Rotation Engine Check ---
                     if current_file_size + packet_total_size > MAX_FILE_SIZE:
                         pcap_file.close()
                         
@@ -253,7 +244,6 @@ def capture_packets(serial_connection, base_pcap_name, target_bssid=None, channe
                     current_file_size += packet_total_size
                     total_saved += 1
                     
-                    # Flush every 25 packets to extend SD card life
                     if total_saved % 25 == 0:
                         pcap_file.flush()
                         print(f"Packets Written: {total_saved} (Parsed from ESP: {total_captured})", end='\r')
@@ -281,35 +271,29 @@ if __name__ == "__main__":
         print(f"[-] Failure opening serial hardware port {args.port}: {e}")
         sys.exit(1)
     
-    # Determine operational or fallback channel values
     if args.channel is not None and 1 <= args.channel <= 11:
         chosen_channel = args.channel
     else:
-        # Fallback: Pick a completely random channel (1-11) if omitted or out of bounds
         chosen_channel = random.randint(1, 11)
         print(f"[🎲] No specific channel specified. Selected random fallback Channel: {chosen_channel}")
         logging.info(f"No specific channel specified. Selected random fallback Channel: {chosen_channel}")
 
     if args.mode == "all":
-        capture_packets(ser, base_pcap_name=args.output, target_bssid=None, channel=args.channel)
+        capture_packets(ser, base_pcap_name=args.output, target_bssid=None, channel=chosen_channel)
         
     elif args.mode == "scan" and args.bssid:
-        # Run automated background discovery pass
         target, channel = run_live_scan(ser, target_bssid=args.bssid)
         if target:
-            # Target located -> Lock channel and capture target packets
             capture_packets(ser, base_pcap_name=args.output, target_bssid=target, channel=channel)
         else:
-            # Fallback Safety: Target not found, drop back to safe Catch-All operations
-            print(f"[!] Falling back to Catch-All Mode on Channel {args.channel}...")
-            logging.info(f"Falling back to Catch-All Mode on Channel {args.channel}")
-            capture_packets(ser, base_pcap_name=args.output, target_bssid=None, channel=args.channel)
+            print(f"[!] Falling back to Catch-All Mode on Channel {chosen_channel}...")
+            logging.info(f"Falling back to Catch-All Mode on Channel {chosen_channel}")
+            capture_packets(ser, base_pcap_name=args.output, target_bssid=None, channel=chosen_channel)
             
     else:
-        # Fallback to Menu UI if flags are omitted
         print("=== INTERACTIVE SELECTION ===")
-        print(" Scan and lock onto a local network")
-        print(" Blind Catch-All mode channel capture")
+        print(" [1] Scan and lock onto a local network")
+        print(" [2] Blind Catch-All mode channel capture")
         user_choice = input("Select Option (1 or 2): ").strip()
         
         if user_choice == "1":
@@ -317,6 +301,6 @@ if __name__ == "__main__":
             if target:
                 capture_packets(ser, base_pcap_name=args.output, target_bssid=target, channel=channel)
         else:
-            capture_packets(ser, base_pcap_name=args.output, target_bssid=None, channel=args.channel)
+            capture_packets(ser, base_pcap_name=args.output, target_bssid=None, channel=chosen_channel)
             
     ser.close()
