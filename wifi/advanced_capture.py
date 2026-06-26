@@ -78,6 +78,68 @@ def run_automated_survey(serial_connection, survey_duration=10.0, rssi_threshold
             continue
         buffer += chunk
         
+        # Process the buffer stream
+        while True:
+            start_idx = buffer.find(MAGIC_HEADER)
+            if start_idx == -1:
+                buffer = buffer[-len(MAGIC_HEADER):] # only keeps last N bytes so we can check if header is cut across chunks
+                break
+            if len(buffer) < start_idx + len(MAGIC_HEADER) + 3: # +3 accounts for 2byte len + 1byte RSSI
+                buffer = buffer[start_idx:]
+                break
+
+            len_offset = start_idx + len(MAGIC_HEADER)
+            pkt_len = struct.unpack('<H', buffer[len_offset:len_offset+2])[0]
+
+            # extract rssi (signed 8-bit int)
+            rssi_idx = len_offset + 2 #two bytes after the start of the header (2bytes for pkt_len)
+            # rssi is 1-byte and begins at the next byte after pkt_len
+            rssi = struct.unpack('<b', buffer[rssi_idx:rssi_idx+1])[0]
+
+            # payload begins 1byte after the start of rssi (rssi is 1byte)
+            payload_start = rssi_idx + 1
+            payload_end = payload_start + pkt_len
+
+            # check if buffer is less than payload_end
+            if len(buffer) < payloaf=d_end:
+                buffer = buffer[start_idx:]
+                break
+
+            packet_bytes = buffer[payload_start:payload_end]
+            buffer = buffer[payload_end:]
+
+            # 0x80 is an 802.11 Management Frame (Beacon)
+            if len(packet_bytes) >= 36 and packet_bytes[0] == 0x80:  # beacon frame
+                bssid = parse_mac(packet_bytes, 16)
+                ssid = parse_ssid(packet_bytes)
+
+                if bssid:
+                    if bssid not in networks or networks[bssid]["rssi"] < rssi:
+                        networks[bssid] = {
+                            "ssid": ssid,
+                            "channel": current_channel,
+                            "rssi": rssi
+                        }
+
+    # --- POST-SURVEY FILTERING & SORTING PIPELINE ---
+   
+    # 1. Convert dict items into a flat list
+    discovered_list = list(networks.values())
+   
+    # 2. Filter out weak networks that will result in bad/corrupted captures
+    viable_targets = [net for net in discovered_list if net["rssi"] >= rssi_threshold]
+   
+    # 3. Sort targets by RSSI in descending order (strongest signal first)
+    # Note: Since RSSI values are negative, key=lambda x: x["rssi"] works beautifully
+    # because -45 is greater than -80. reverse=True ensures highest values are index 0.
+    sorted_targets = sorted(viable_targets, key=lambda x: x["rssi"], reverse=True)
+
+    print(f"[+] Survey complete. Found {len(discovered_list)} networks, {len(sorted_targets)} are viable.")
+    for idx, net in enumerate(sorted_targets[:5]): # print top 5
+        print(f"  [{idx}] Strength: {net["rssi"]}dBm | Chan: {net["channel"]} | SSID: {net["ssid"]}")
+    
+    return sorted_targets
+    
 
 
 def capture_packets(serial_connection, base_pcap_name, target_bssid=None, channel=1):
